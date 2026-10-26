@@ -6,6 +6,7 @@
  "ADB refused the command": "ADB refused the command",
  "About this TV": "About this TV",
  "Accept “Allow USB debugging?” on the TV (tick “Always allow”).": "Accept “Allow USB debugging?” on the TV (tick “Always allow”).",
+ "Acclaimed": "Acclaimed",
  "Added to the shelf: {app}": "Added to the shelf: {app}",
  "All Apps": "All Apps",
  "All Apps button": "All Apps button",
@@ -59,6 +60,7 @@
  "I couldn't check which app saved the Wi-Fi, so nothing changed. Try again in a minute.": "I couldn't check which app saved the Wi-Fi, so nothing changed. Try again in a minute.",
  "IP address": "IP address",
  "IVI button": "IVI button",
+ "In theaters": "In theaters",
  "Inputs": "Inputs",
  "KION button": "KION button",
  "Keystone": "Keystone",
@@ -174,6 +176,7 @@
  "This product uses the TMDB API but is not endorsed or certified by TMDB.": "This product uses the TMDB API but is not endorsed or certified by TMDB.",
  "Thunderstorms": "Thunderstorms",
  "Time zone": "Time zone",
+ "To rent or buy": "To rent or buy",
  "Top Buttons": "Top Buttons",
  "Top center": "Top center",
  "Top left": "Top left",
@@ -252,5 +255,7 @@
  "{n} min ago": "{n} min ago",
  "{n} ms": "{n} ms",
  "{time} left": "{time} left",
+ "“{title}” isn't streaming here yet.": "“{title}” isn't streaming here yet.",
+ "“{title}”: {where}": "“{title}”: {where}",
  "← → to move · OK to drop · Back to cancel": "← → to move · OK to drop · Back to cancel"
 }

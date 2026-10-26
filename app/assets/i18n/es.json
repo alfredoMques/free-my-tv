@@ -6,6 +6,7 @@
  "ADB refused the command": "ADB rechazó el comando",
  "About this TV": "Acerca de este televisor",
  "Accept “Allow USB debugging?” on the TV (tick “Always allow”).": "Acepta “¿Permitir depuración USB?” en el TV (marca “Permitir siempre”).",
+ "Acclaimed": "Aclamados",
  "Added to the shelf: {app}": "Añadido al estante: {app}",
  "All Apps": "Todas las apps",
  "All Apps button": "Botón Todas las apps",
@@ -59,6 +60,7 @@
  "I couldn't check which app saved the Wi-Fi, so nothing changed. Try again in a minute.": "No pude comprobar qué app guardó el Wi-Fi, así que no cambió nada. Vuelve a intentarlo en un minuto.",
  "IP address": "Dirección IP",
  "IVI button": "Botón IVI",
+ "In theaters": "En cines",
  "Inputs": "Entradas",
  "KION button": "Botón KION",
  "Keystone": "Keystone",
@@ -174,6 +176,7 @@
  "This product uses the TMDB API but is not endorsed or certified by TMDB.": "Este producto usa la API de TMDB, sin respaldo ni certificación de TMDB.",
  "Thunderstorms": "Tormenta",
  "Time zone": "Zona horaria",
+ "To rent or buy": "Para alquilar o comprar",
  "Top Buttons": "Botones de arriba",
  "Top center": "Arriba al centro",
  "Top left": "Arriba a la izquierda",
@@ -252,5 +255,7 @@
  "{n} min ago": "hace {n} min",
  "{n} ms": "{n} ms",
  "{time} left": "quedan {time}",
+ "“{title}” isn't streaming here yet.": "“{title}” todavía no está en streaming aquí.",
+ "“{title}”: {where}": "“{title}”: {where}",
  "← → to move · OK to drop · Back to cancel": "← → para mover · OK para soltar · Atrás para cancelar"
 }

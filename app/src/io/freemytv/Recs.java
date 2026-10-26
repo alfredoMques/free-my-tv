@@ -49,6 +49,8 @@ final class Recs {
         String link;            // opens the title in its app (looked up with Watchmode), or null: the app's home
         boolean detailed;
         java.io.File photo;     // one of your own photos (Photos): no title, no caption
+        boolean acclaimed;      // the Acclaimed tab: best rated on TMDB, on any service or in theaters
+        String where = "";      // acclaimed, not on the TV's apps: the service's name, CINEMA, RENT or empty
     }
 
     interface Listener { void onRecs(); }
@@ -60,7 +62,11 @@ final class Recs {
     private static final int ANIMATION = 16;
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 4;
+    private static final int CACHE_VERSION = 5;
+    /** Pick.where for a title in theaters, or only to rent or buy. */
+    static final String CINEMA = "@cinema", RENT = "@rent";
+    /** The Acclaimed tab's kind (HomeView's TAB_KIND). */
+    static final String ACCLAIMED = "top";
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     /** Service name on TMDB (part of the name, lowercase) → TV app (HomeApps key, package). */
     private static final String[][] SERVICES = {
@@ -138,7 +144,7 @@ final class Recs {
     private volatile long listAt;
     private volatile boolean fetching;
     private volatile String error = "";
-    private volatile boolean light;     // light design: builds only the cards (all three tabs' cards fit in memory)
+    private volatile boolean light;     // light design: builds only the cards (all four tabs' cards fit in memory)
     private volatile long failedAt, keyStamp, linkRetryAt;
     private volatile String listLanguage = "";   // language used for the saved titles, genres and texts
 
@@ -202,13 +208,16 @@ final class Recs {
         return now(null);
     }
 
-    /** This hour's 3, movies only ("movie") or shows only ("tv"); null = both (the home screen tabs). */
+    /** This hour's 3, movies only ("movie"), shows only ("tv") or the best rated (ACCLAIMED); null = both (the home screen tabs). */
     List<Pick> now(String kind) {
         List<Pick> list = new ArrayList<>();
         if (!hasKey(context)) return list;    // no TMDB key: no recommendations
         Map<String, Boolean> have = new HashMap<>();   // one look per app, not per title (this runs every 15 s)
+        boolean top = ACCLAIMED.equals(kind);
         for (Pick p : picks) {
-            if ((kind == null || kind.equals(p.kind))
+            if (top) {
+                if (p.acclaimed) list.add(p);    // on any service or in theaters: the TV's apps don't matter
+            } else if (!p.acclaimed && (kind == null || kind.equals(p.kind))
                     && (!p.detailed || (p.pkg != null && have.computeIfAbsent(p.pkg, this::installed)))) list.add(p);   // app missing: skip
         }
         if (list.isEmpty()) return list;
@@ -289,7 +298,7 @@ final class Recs {
                     tried++;
                     try {
                         if (!pick.detailed) fetchDetails(pick);
-                        if (pick.pkg != null) download(pick);
+                        if (pick.pkg != null || pick.acclaimed) download(pick);
                     } catch (Exception e) {
                         failures++;
                         last = e.getMessage() == null ? e.toString() : e.getMessage();
@@ -352,7 +361,7 @@ final class Recs {
         long sinceFail = System.currentTimeMillis() - failedAt;
         if (failedAt != 0 && sinceFail >= 0 && sinceFail < 10 * 60_000L) return;
         List<Pick> todo = new ArrayList<>();
-        for (Pick p : picks) if (!p.detailed || (p.pkg != null && !hasImage(p))) todo.add(p);
+        for (Pick p : picks) if (!p.acclaimed && (!p.detailed || (p.pkg != null && !hasImage(p)))) todo.add(p);
         if (todo.isEmpty()) return;
         fetching = true;
         io.execute(() -> {
@@ -382,11 +391,11 @@ final class Recs {
         });
     }
 
-    /** This hour's picks for the three tabs (Explore, Movies, Shows), without repeats. */
+    /** This hour's picks for the four tabs (Explore, Movies, Shows, Acclaimed), without repeats. */
     List<Pick> wanted() {
         List<Pick> out = new ArrayList<>();
         java.util.Set<String> seen = new java.util.HashSet<>();
-        for (String kind : new String[] {null, "movie", "tv"}) {
+        for (String kind : new String[] {null, "movie", "tv", ACCLAIMED}) {
             for (Pick p : now(kind)) if (seen.add(key(p))) out.add(p);
         }
         return out;
@@ -404,6 +413,65 @@ final class Recs {
     // MARK: - TMDB
 
     private void fetchList(int p) throws Exception {
+        List<Pick> acclaimed = new ArrayList<>();
+        try {
+            acclaimed = fetchAcclaimed();
+        } catch (Exception e) {
+            AppLog.w("acclaimed: " + e.getMessage());
+        }
+        List<Pick> list;
+        try {
+            list = fetchForYou();
+        } catch (Exception e) {
+            if (acclaimed.isEmpty()) throw e;
+            list = new ArrayList<>();    // the TV's apps give no picks, but the Acclaimed tab still has its own
+        }
+        list.addAll(acclaimed);
+        picks = list;
+        period = p;
+        listAt = System.currentTimeMillis();
+        listLanguage = Ui.language;
+    }
+
+    /**
+     * The Acclaimed tab: the best rated on TMDB (many votes, so a few fans can't push a title up), on any service or
+     * in theaters, not only the TV's apps. Recent ones first (movies from the past 2 years, shows with an episode in
+     * the past year), then what's in theaters and rated well, then the best of all time; up to 40.
+     */
+    private List<Pick> fetchAcclaimed() throws Exception {
+        String base = "&language=" + lang() + "&include_adult=false&sort_by=vote_average.desc";
+        String common = base + (Config.HIDE_ANIMATION ? "&without_genres=" + ANIMATION : "");
+        // News, reality, soap and talk shows: TMDB's ratings for those say little.
+        String showCommon = base + "&without_genres="
+                + URLEncoder.encode((Config.HIDE_ANIMATION ? ANIMATION + "," : "") + "10763,10764,10766,10767", "UTF-8");
+        List<Pick> recentMovies = new ArrayList<>(), recentShows = new ArrayList<>(), cinema = new ArrayList<>();
+        List<Pick> bestMovies = new ArrayList<>(), bestShows = new ArrayList<>();
+        JSONArray a = get("/discover/movie?vote_count.gte=1000&primary_release_date.gte=" + day(-730)
+                + "&primary_release_date.lte=" + day(0) + common).getJSONArray("results");
+        for (int i = 0; i < a.length(); i++) add(recentMovies, a.getJSONObject(i), "movie");
+        a = get("/discover/tv?vote_count.gte=500&air_date.gte=" + day(-365) + "&air_date.lte=" + day(0) + showCommon)
+                .getJSONArray("results");
+        for (int i = 0; i < a.length(); i++) add(recentShows, a.getJSONObject(i), "tv");
+        a = get("/movie/now_playing?language=" + lang() + "&region=" + REGION).getJSONArray("results");
+        for (int i = 0; i < a.length(); i++) {
+            JSONObject o = a.getJSONObject(i);
+            if (o.optDouble("vote_average") >= 7 && o.optInt("vote_count") >= 50) add(cinema, o, "movie");
+        }
+        a = get("/discover/movie?vote_count.gte=5000" + common).getJSONArray("results");
+        for (int i = 0; i < a.length(); i++) add(bestMovies, a.getJSONObject(i), "movie");
+        a = get("/discover/tv?vote_count.gte=2000" + showCommon).getJSONArray("results");
+        for (int i = 0; i < a.length(); i++) add(bestShows, a.getJSONObject(i), "tv");
+        List<Pick> out = new ArrayList<>();
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        alternate(out, seen, recentMovies, recentShows, 20);
+        alternate(out, seen, cinema, new ArrayList<>(), 26);
+        alternate(out, seen, bestMovies, bestShows, 40);
+        for (Pick pick : out) pick.acclaimed = true;
+        return out;
+    }
+
+    /** Explore, Movies and Shows: trending and new on the TV's own streaming apps. */
+    private List<Pick> fetchForYou() throws Exception {
         // None of the services we know is on the TV (or hide_services hides them all): no region would change that.
         boolean any = false;
         for (String[] s : SERVICES) any |= installed(s[2]);
@@ -453,10 +521,7 @@ final class Recs {
         alternate(list, seen, hotMovies, hotShows, 24);
         alternate(list, seen, newMovies, newShows, 24);
         if (list.isEmpty()) throw new IOException("TMDB returned no recommendations");
-        picks = list;
-        period = p;
-        listAt = System.currentTimeMillis();
-        listLanguage = Ui.language;
+        return list;
     }
 
     /** Language of titles and genres (TMDB's "fr-FR", "zh-CN"…); the services come from the region. */
@@ -534,8 +599,38 @@ final class Recs {
             }
         }
         if (p.app != null) parts.add(SERVICE_NAME.get(p.app));
+        if (p.acclaimed) {
+            if (p.app == null) {
+                p.where = where(o, br);
+                String label = whereLabel(p.where);
+                if (!label.isEmpty()) parts.add(label);
+            }
+            double rating = o.optDouble("vote_average", 0);
+            if (rating > 0) parts.add(0, String.format(Ui.locale(), "\u2605 %.1f", rating));
+        }
         p.meta = String.join(" · ", parts);
         p.detailed = true;
+    }
+
+    /** Where an acclaimed title is when none of the TV's apps has it: another service, theaters, rent or buy, or "". */
+    private static String where(JSONObject o, JSONObject region) {
+        JSONArray flat = region == null ? null : region.optJSONArray("flatrate");
+        for (int i = 0; flat != null && i < flat.length(); i++) {
+            String name = flat.optJSONObject(i).optString("provider_name");
+            if (!name.isEmpty() && !name.toLowerCase(Locale.ROOT).contains(" channel")) return name;
+        }
+        // A movie out in the past 4 months that no service streams yet is still in theaters.
+        String released = o.optString("release_date");
+        if (!released.isEmpty() && released.compareTo(day(-120)) >= 0 && released.compareTo(day(0)) <= 0) return CINEMA;
+        boolean sold = region != null && (region.optJSONArray("rent") != null || region.optJSONArray("buy") != null);
+        return sold ? RENT : "";
+    }
+
+    /** Pick.where in words, for the card and the toast. */
+    static String whereLabel(String where) {
+        if (CINEMA.equals(where)) return Ui.tr("In theaters");
+        if (RENT.equals(where)) return Ui.tr("To rent or buy");
+        return where == null ? "" : where;
     }
 
     /**
@@ -773,7 +868,7 @@ final class Recs {
             if (forLight != light) return;   // the design changed midway: this one is stale
             synchronized (images) {
                 images.put(p.backdrop, backdrop);
-                while (images.size() > (forLight ? 10 : 4)) images.remove(images.keySet().iterator().next());
+                while (images.size() > (forLight ? 12 : 4)) images.remove(images.keySet().iterator().next());   // light: 3 cards x 4 tabs
             }
             notifyListeners();
         } catch (IOException | RuntimeException | OutOfMemoryError e) {
@@ -817,7 +912,7 @@ final class Recs {
             for (Pick p : picks) {
                 a.put(new JSONObject().put("id", p.id).put("kind", p.kind).put("title", p.title).put("backdrop", p.backdrop).put("link", p.link == null ? "" : p.link)
                         .put("meta", p.meta).put("app", p.app == null ? "" : p.app).put("pkg", p.pkg == null ? "" : p.pkg)
-                        .put("detailed", p.detailed));
+                        .put("detailed", p.detailed).put("acclaimed", p.acclaimed).put("where", p.where));
             }
             SharedPreferences.Editor e = cache.edit().putString("picks", a.toString()).putInt("period", period).putLong("listAt", listAt)
                     .putString("language", listLanguage)
@@ -846,6 +941,8 @@ final class Recs {
             p.app = o.optString("app").isEmpty() ? null : o.optString("app");
             p.pkg = o.optString("pkg").isEmpty() ? null : o.optString("pkg");
             p.detailed = o.optBoolean("detailed");
+            p.acclaimed = o.optBoolean("acclaimed");
+            p.where = o.optString("where");
             out.add(p);
         }
         return out;
